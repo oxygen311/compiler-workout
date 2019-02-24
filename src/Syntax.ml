@@ -34,6 +34,33 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
+    (* Convert str operator to ocaml function *)
+    let eval_op op =
+        (* Convert boolean to int *)
+        let bool_to_int b = if b then 1 else 0 in
+        (* Convert int to boolean *)
+        let int_to_bool i = i != 0 in
+        (* Convert (int->int->bool) function to (int->int->int) function *)
+        let compare_apply f v1 v2 = bool_to_int (f v1 v2) in
+        (* Convert (bool->bool->bool) function to (int->int->int) function *)
+        let bool_apply f v1 v2 = bool_to_int (f (int_to_bool v1) (int_to_bool v2)) in
+
+        match op with
+            | "+"  -> (+)
+            | "-"  -> (-)
+            | "*"  -> ( * )
+            | "/"  -> (/)
+            | "%"  -> (mod)
+            | "==" -> compare_apply (=)
+            | "!=" -> compare_apply (<>)
+            | "<=" -> compare_apply (<=)
+            | "<"  -> compare_apply (<)
+            | ">=" -> compare_apply (>=)
+            | ">"  -> compare_apply (>)
+            | "!!" -> bool_apply (||)
+            | "&&" -> bool_apply (&&)
+            | _    -> failwith "Unknown operator"
+
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -41,7 +68,10 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval state expr = match expr with
+        | Const  value             -> value
+        | Var    str               -> state str
+        | Binop (op, expr1, expr2) -> eval_op op (eval state expr1) (eval state expr2)
 
   end
                     
@@ -57,7 +87,7 @@ module Stmt =
     (* composition                      *) | Seq    of t * t with show
 
     (* The type of configuration: a state, an input stream, an output stream *)
-    type config = Expr.state * int list * int list 
+    type config = Expr.state * int list * int list
 
     (* Statement evaluator
 
@@ -65,8 +95,16 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
-                                                         
+    let rec eval cfg stmt: config =
+        let (s, i, o) = cfg in
+        match stmt with
+        | Read x -> (match i with
+            | z :: i_rest -> (Expr.update x z s, i_rest, o)
+            | _           -> failwith "Empty input when reading var")
+        | Write   e             -> (s, i, o @ [Expr.eval s e])
+        | Assign (x, e)         -> (Expr.update x (Expr.eval s e) s, i, o)
+        | Seq    (stmt1, stmt2) -> eval (eval cfg stmt1) stmt2
+
   end
 
 (* The top-level definitions *)
